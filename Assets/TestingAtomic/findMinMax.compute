@@ -1,0 +1,93 @@
+#pragma kernel findMinValueKernel
+#pragma kernel findMaxValueKernel
+
+StructuredBuffer<float> valuesArrBuffer;
+RWStructuredBuffer<float> minArrBuffer;
+RWStructuredBuffer<uint> minArrUintBuffer;
+RWStructuredBuffer<float> maxArrBuffer;
+RWStructuredBuffer<uint> maxArrUintBuffer;
+
+uint numCount;
+
+[numthreads(64, 1, 1)]
+void findMinValueKernel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numCount) return;
+    //// Initialize min value to a large positive number
+    float minValue = 0;
+    float value = valuesArrBuffer[id.x];
+    if (isnan(value)) return;
+
+    float fvalue = min(value, minValue);
+    //// Read the value from the buffer
+    uint ivalue = asuint(fvalue);
+
+    if ((ivalue >> 31) == 0)
+    {
+        // The sign bit wasn't set, so set it temporarily.
+        ivalue = ivalue | (1 << 31);
+    }
+    else
+    {
+        // In the case where we started with a negative value, take
+        // the ones complement.
+        ivalue = ~ivalue;
+    }
+
+    InterlockedMin(minArrUintBuffer[0], ivalue);
+
+    if ((minArrUintBuffer[0] >> 31) == 0)
+    {
+        // The MSB is unset, so take the complement, then bitcast,
+        // turning this back into a negative floating point value.
+        minArrBuffer[0] = asfloat(~minArrUintBuffer[0]);
+    }
+    else
+    {
+        // The MSB is set, so we started with a positive float.
+        // Unset the MSB and bitcast.
+        minArrBuffer[0] = asfloat(minArrUintBuffer[0] & ~(1u << 31));
+    }
+}
+
+
+[numthreads(64, 1, 1)]
+void findMaxValueKernel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numCount) return;
+    //// Initialize max value to a small positive number
+    float maxValue = -3.402823e38;
+    float value = valuesArrBuffer[id.x];
+    if (isnan(value)) return;
+
+    float fvalue = max(value, maxValue);
+    //// Read the value from the buffer
+    uint ivalue = asuint(fvalue);
+
+    if ((ivalue >> 31) == 0)
+    {
+        // The sign bit wasn't set, so set it temporarily.
+        ivalue = ivalue | (1 << 31);
+    }
+    else
+    {
+        // In the case where we started with a negative value, take
+        // the ones complement.
+        ivalue = ~ivalue;
+    }
+
+    InterlockedMax(maxArrUintBuffer[0], ivalue);
+
+    if ((maxArrUintBuffer[0] >> 31) == 0)
+    {
+        // The MSB is unset, so take the complement, then bitcast,
+        // turning this back into a negative floating point value.
+        maxArrBuffer[0] = asfloat(~maxArrUintBuffer[0]);
+    }
+    else
+    {
+        // The MSB is set, so we started with a positive float.
+        // Unset the MSB and bitcast.
+        maxArrBuffer[0] = asfloat(maxArrUintBuffer[0] & ~(1u << 31));
+    }
+}

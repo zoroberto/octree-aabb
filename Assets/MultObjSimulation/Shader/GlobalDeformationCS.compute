@@ -1,0 +1,161 @@
+﻿//uniform data here
+
+uint nodeCount;
+uint numberObj;
+
+float dt;
+
+struct vertData
+{
+    float3 pos;
+    float2 uvs;
+    float3 norms;
+};
+struct Triangle
+{
+    int v0;
+    int v1;
+    int v2;
+};
+
+struct BoundingBox
+{
+    float3 min;
+    float3 max;
+};
+
+RWStructuredBuffer<float3> Positions;
+RWStructuredBuffer<float3> Velocities;
+
+RWStructuredBuffer<vertData> vertsBuff;
+
+RWStructuredBuffer<Triangle> Triangles;
+RWStructuredBuffer<uint> TrianglePtr;
+
+RWStructuredBuffer<float3> floorPositions;
+RWStructuredBuffer<BoundingBox> floorBB;
+
+RWStructuredBuffer<BoundingBox> bbBounding;
+RWStructuredBuffer<uint> floorCollisionResult;
+
+#pragma kernel UpdatePosKernel
+#pragma kernel computenormalKernel
+#pragma kernel FindFloorMinMax
+#pragma kernel CollisionWithFloor
+#pragma kernel UpdateReverseVelocity
+
+
+
+[numthreads(1024, 1, 1)]
+void UpdatePosKernel(uint3 i : SV_DispatchThreadID) {
+    if (i.x >= nodeCount) return;
+
+
+    float3 gravity = float3(0.0f, -9.81f, 0.0f);
+    float3 position = Positions[i.x];
+    float3 velocity = Velocities[i.x];
+
+    velocity = velocity + gravity * dt;
+    position = position + velocity * dt;
+    Positions[i.x] = position;
+    Velocities[i.x] = velocity;
+
+    vertsBuff[i.x].pos = Positions[i.x];
+}
+
+
+[numthreads(1024, 1, 1)]
+void computenormalKernel(uint3 i : SV_DispatchThreadID) {
+    if (i.x >= nodeCount) return;
+
+    float3 norm = float3(0, 0, 0);
+    int start = TrianglePtr[i.x];
+    int end = TrianglePtr[i.x + 1];
+
+    for (int j = start; j < end; j++) {
+        Triangle t = Triangles[j];
+        float3 v1 = Positions[t.v0];
+        float3 v2 = Positions[t.v1];
+        float3 v3 = Positions[t.v2];
+
+        float3 N = cross(v2 - v1, v3 - v1);
+        norm += N;
+    }
+    vertsBuff[i.x].norms = normalize(norm);
+}
+
+[numthreads(1, 1, 1)]
+void FindFloorMinMax(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    float3 minValue = floorPositions[0];
+    float3 maxValue = floorPositions[0];
+
+    for (uint i = 0; i < floorPositions.Length; i++)
+    {
+        float3 vertex = floorPositions[i];
+
+        minValue = min(minValue, vertex); // 최소값 업데이트
+        maxValue = max(maxValue, vertex); // 최대값 업데이트
+    }
+    maxValue.y += 0.1f;
+
+    floorBB[idx].min = minValue;
+    floorBB[idx].max = maxValue;
+}
+
+
+[numthreads(1024, 1, 1)]
+void CollisionWithFloor(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    float3 minValue = Positions[0];
+    float3 maxValue = Positions[0];
+
+    for (int i = 0; i < Positions.Length; i++)
+    {
+        float3 vertex = Positions[i];
+
+        minValue = min(minValue, vertex);
+        maxValue = max(maxValue, vertex);
+    }
+
+    bbBounding[idx].min = minValue;
+    bbBounding[idx].max = maxValue;
+
+    bool collides =
+        bbBounding[idx].min.x <= floorBB[idx].max.x &&
+        bbBounding[idx].max.x >= floorBB[idx].min.x &&
+        bbBounding[idx].min.y <= floorBB[idx].max.y &&
+        bbBounding[idx].max.y >= floorBB[idx].min.y &&
+        bbBounding[idx].min.z <= floorBB[idx].max.z &&
+        bbBounding[idx].max.z >= floorBB[idx].min.z;
+
+    floorCollisionResult[idx] = collides ? 1 : 0;
+}
+
+[numthreads(1024, 1, 1)]
+void UpdateReverseVelocity(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    if (idx >= nodeCount) return;
+    float3 gravity = float3(0.0f, -9.81f, 0.0f);
+
+
+    if (floorCollisionResult[0] == 1)
+    {
+        float3 currentVelocity = Velocities[idx];
+        float3 currentPosition = Positions[idx];
+
+        currentVelocity *= -1;
+        currentPosition.y += 0.1f;
+
+        Velocities[idx] = currentVelocity;
+        Positions[idx] = currentPosition;
+
+        vertsBuff[idx].pos = Positions[idx];
+    }
+}
