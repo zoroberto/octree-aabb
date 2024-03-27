@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class CSVPosExporter : MonoBehaviour
 {
-    [Header("Deformable model")]
+    [Header("Number model")]
     public int number_object = 1;
     //public GameObject clone_object;
 
